@@ -1,3 +1,10 @@
 model/best_stg1.onnx
 model/best_stg1.pth
 model/model.engine
+
+D-FINE/
+zed-gstreamer/
+
+apps/zed_ds_cpp/build/
+logs/
+*.log

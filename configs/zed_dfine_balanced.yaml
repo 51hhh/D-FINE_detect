@@ -1,0 +1,30 @@
+camera:
+  camera_id: 0
+  resolution: HD1080
+  fps: 60
+  stream_type: left+depth
+
+infer:
+  config_file: configs/infer/config_infer_primary_dfine_ball.txt
+  onnx_file: model/best_stg1.onnx
+  engine_file: model/model.engine
+  labels: DeepStream-Yolo/labels.txt
+  threshold: 0.30
+
+depth:
+  roi_ratio: 0.10
+  min_valid_ratio: 0.25
+  min_depth: 0.10
+  max_depth: 20.00
+
+perf:
+  target_fps: 60
+  fallback_fps: 45
+  latency_budget_ms: 50
+  window_sec: 5
+
+output:
+  enable_osd: true
+  json_path: logs/frame_result_balanced.jsonl
+  perf_log_interval_sec: 5
+  display: true
