@@ -3,6 +3,20 @@ camera:
   resolution: HD1080
   fps: 60
   stream_type: left+depth
+  use_factory_calib: true
+  use_distortion_correction: true
+  calibration_file: /usr/local/zed/settings/SN40013030.conf
+  # 相机内参，建议替换为 ZED 标定值。
+  fx: 1000.0
+  fy: 1000.0
+  cx: 960.0
+  cy: 540.0
+  # 畸变参数，开启出厂标定后会自动覆盖。
+  k1: 0.0
+  k2: 0.0
+  p1: 0.0
+  p2: 0.0
+  k3: 0.0
 
 infer:
   config_file: configs/infer/config_infer_primary_dfine_ball.txt
@@ -22,6 +36,9 @@ perf:
   fallback_fps: 45
   latency_budget_ms: 50
   window_sec: 5
+  warmup_sec: 8
+  # 建议关闭自动降档重启，避免 zedsrc 在重启链路时出现不稳定。
+  enable_auto_fallback: false
 
 output:
   enable_osd: true
