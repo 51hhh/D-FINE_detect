@@ -25,6 +25,10 @@ struct DepthEstimate {
   float depth_m{0.0f};
   float valid_ratio{0.0f};
   bool valid{false};
+  // 目标中心点在相机坐标系下的三维坐标（米）。
+  float x_m{0.0f};
+  float y_m{0.0f};
+  float z_m{0.0f};
 };
 
 struct DetectionResult {

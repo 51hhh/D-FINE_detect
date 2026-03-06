@@ -14,7 +14,6 @@ process-mode=1
 network-type=0
 cluster-mode=4
 maintain-aspect-ratio=0
-parse-bbox-func-name=NvDsInferParseYolo
 custom-lib-path=../../apps/zed_ds_cpp/build/libnvdsinfer_custom_dfine.so
 parse-bbox-func-name=NvDsInferParseDFINE
 

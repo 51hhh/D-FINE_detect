@@ -26,6 +26,9 @@ void OutputWriter::Write(const FrameResult& frame_result) {
     out_ << "{\"class_id\":" << d.det.class_id << ",\"label\":\"" << d.det.label << "\",\"conf\":"
          << std::fixed << std::setprecision(4) << d.det.conf << ",\"bbox\":[" << d.det.bbox.left << "," << d.det.bbox.top << ","
          << d.det.bbox.width << "," << d.det.bbox.height << "],\"depth_m\":" << d.depth.depth_m
+         << ",\"x_m\":" << d.depth.x_m
+         << ",\"y_m\":" << d.depth.y_m
+         << ",\"z_m\":" << d.depth.z_m
          << ",\"depth_valid\":" << (d.depth.valid ? "true" : "false")
          << ",\"depth_valid_ratio\":" << d.depth.valid_ratio << "}";
     if (i + 1 < frame_result.detections.size()) out_ << ",";

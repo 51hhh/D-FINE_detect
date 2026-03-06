@@ -10,6 +10,8 @@ PerfMonitor::PerfMonitor(int window_sec) : window_sec_(std::max(1, window_sec)) 
 
 void PerfMonitor::MarkFrame(double latency_ms) {
   auto now = std::chrono::steady_clock::now();
+  // total_frames_ 记录累计处理帧数，不受滑动窗口裁剪影响。
+  ++total_frames_;
   frame_ts_.push_back(now);
   latency_ms_.push_back(latency_ms);
 
@@ -42,5 +44,6 @@ double PerfMonitor::P95LatencyMs() const {
 }
 
 size_t PerfMonitor::FrameCount() const { return frame_ts_.size(); }
+uint64_t PerfMonitor::TotalFrameCount() const { return total_frames_; }
 
 }  // namespace zed_ds
