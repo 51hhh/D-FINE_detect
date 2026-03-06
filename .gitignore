@@ -1,6 +1,7 @@
 model/best_stg1.onnx
 model/best_stg1.pth
 model/model.engine
+model/*.engine
 
 D-FINE/
 zed-gstreamer/
@@ -8,3 +9,6 @@ zed-gstreamer/
 apps/zed_ds_cpp/build/
 logs/
 *.log
+
+# 运行时生成的 nvinfer 配置（已移至 /tmp，但保留排除规则以防万一）。
+configs/infer/.runtime_*

@@ -6,12 +6,10 @@ camera:
   use_factory_calib: true
   use_distortion_correction: true
   calibration_file: /usr/local/zed/settings/SN40013030.conf
-  # 相机内参，建议替换为 ZED 标定值。
   fx: 700.0
   fy: 700.0
   cx: 480.0
   cy: 300.0
-  # 畸变参数，开启出厂标定后会自动覆盖。
   k1: 0.0
   k2: 0.0
   p1: 0.0
@@ -21,9 +19,9 @@ camera:
 infer:
   config_file: configs/infer/config_infer_primary_dfine_ball.txt
   onnx_file: model/best_stg1.onnx
-  engine_file: model/model.engine
-  labels: DeepStream-Yolo/labels.txt
-  threshold: 0.25
+  engine_file: model/best_stg1_fp16.engine
+  labels: configs/labels_ball.txt
+  threshold: 0.75
 
 depth:
   roi_ratio: 0.10
@@ -33,15 +31,13 @@ depth:
 
 perf:
   target_fps: 120
-  fallback_fps: 60
   latency_budget_ms: 35
   window_sec: 5
   warmup_sec: 8
-  # 建议关闭自动降档重启，避免 zedsrc 在重启链路时出现不稳定。
-  enable_auto_fallback: false
 
 output:
   enable_osd: true
   json_path: logs/frame_result.jsonl
   perf_log_interval_sec: 5
+  flush_interval_sec: 1
   display: true

@@ -3,11 +3,11 @@ gpu-id=0
 net-scale-factor=0.0039215697906911373
 model-color-format=0
 onnx-file=../../model/best_stg1.onnx
-model-engine-file=../../model/model.engine
-labelfile-path=../../DeepStream-Yolo/labels.txt
+model-engine-file=../../model/best_stg1_fp16.engine
+labelfile-path=../../configs/labels_ball.txt
 batch-size=1
 network-mode=2
-num-detected-classes=80
+num-detected-classes=1
 interval=0
 gie-unique-id=1
 process-mode=1
@@ -18,5 +18,5 @@ custom-lib-path=../../apps/zed_ds_cpp/build/libnvdsinfer_custom_dfine.so
 parse-bbox-func-name=NvDsInferParseDFINE
 
 [class-attrs-all]
-pre-cluster-threshold=0.25
+pre-cluster-threshold=0.75
 topk=300

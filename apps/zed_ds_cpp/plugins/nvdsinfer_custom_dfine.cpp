@@ -67,9 +67,10 @@ bool NvDsInferParseDFINE(std::vector<NvDsInferLayerInfo> const& outputLayersInfo
   }
 
   const int n = std::min(score_count, box_count);
+  const bool force_single_class = (detectionParams.numClassesConfigured == 1);
   for (int i = 0; i < n; ++i) {
     const float score = scores[i];
-    const int class_id = labels[i];
+    const int class_id = force_single_class ? 0 : labels[i];
 
     if (class_id < 0 || class_id >= detectionParams.numClassesConfigured) {
       continue;
