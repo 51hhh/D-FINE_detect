@@ -68,6 +68,18 @@ bool NvDsInferParseDFINE(std::vector<NvDsInferLayerInfo> const& outputLayersInfo
 
   const int n = std::min(score_count, box_count);
   const bool force_single_class = (detectionParams.numClassesConfigured == 1);
+
+  // 通过统计所有候选框的最大坐标来判断是否为归一化坐标。
+  // 逐个判断 (x2 <= 1.5) 在图像左上角小目标场景下会误触发。
+  float max_coord = 0.0f;
+  for (int i = 0; i < n; ++i) {
+    max_coord = std::max(max_coord, boxes[i * 4 + 2]);
+    max_coord = std::max(max_coord, boxes[i * 4 + 3]);
+  }
+  const bool normalized = (max_coord <= 1.5f);
+  const float sx = normalized ? static_cast<float>(networkInfo.width) : 1.0f;
+  const float sy = normalized ? static_cast<float>(networkInfo.height) : 1.0f;
+
   for (int i = 0; i < n; ++i) {
     const float score = scores[i];
     const int class_id = force_single_class ? 0 : labels[i];
@@ -81,24 +93,14 @@ bool NvDsInferParseDFINE(std::vector<NvDsInferLayerInfo> const& outputLayersInfo
       continue;
     }
 
-    const float x1 = boxes[i * 4 + 0];
-    const float y1 = boxes[i * 4 + 1];
-    const float x2 = boxes[i * 4 + 2];
-    const float y2 = boxes[i * 4 + 3];
-
     NvDsInferObjectDetectionInfo obj;
     obj.classId = class_id;
     obj.detectionConfidence = score;
 
-    // 兼容归一化和像素坐标两种导出形式。
-    const bool normalized = (x2 <= 1.5f && y2 <= 1.5f);
-    const float sx = normalized ? static_cast<float>(networkInfo.width) : 1.0f;
-    const float sy = normalized ? static_cast<float>(networkInfo.height) : 1.0f;
-
-    const float l = x1 * sx;
-    const float t = y1 * sy;
-    const float r = x2 * sx;
-    const float b = y2 * sy;
+    const float l = boxes[i * 4 + 0] * sx;
+    const float t = boxes[i * 4 + 1] * sy;
+    const float r = boxes[i * 4 + 2] * sx;
+    const float b = boxes[i * 4 + 3] * sy;
 
     obj.left = std::max(0.0f, l);
     obj.top = std::max(0.0f, t);

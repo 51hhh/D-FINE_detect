@@ -1,5 +1,8 @@
 model/best_stg1.onnx
 model/best_stg1.pth
+model/best_stg2.onnx
+model/best_stg2.pth
+model/*.engine
 model/model.engine
 model/*.engine
 
@@ -7,6 +10,7 @@ D-FINE/
 zed-gstreamer/
 
 apps/zed_ds_cpp/build/
+apps/zed_ds_cpp/build-mingw/
 logs/
 *.log
 

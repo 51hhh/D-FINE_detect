@@ -1,4 +1,5 @@
 #include <gst/gst.h>
+#include <glib-unix.h>
 
 #include <chrono>
 #include <csignal>
@@ -8,25 +9,24 @@
 #include <thread>
 
 #include "config.h"
+#include "ball_tracker.h"
 #include "depth_estimator.h"
+#include "landing_predictor.h"
 #include "output_writer.h"
 #include "perf_monitor.h"
 #include "pipeline_builder.h"
+#include "trajectory_estimator.h"
 #include "version.h"
 
 namespace {
 
-volatile sig_atomic_t g_stop = 0;
-GMainLoop *g_active_loop = nullptr;
-
-void OnSignal(int) {
-  g_stop = 1;
-  // g_main_loop_quit 严格来说不是 async-signal-safe 的，
-  // 但在 Linux + GLib 实际使用中是安全的。
-  // 完美方案是 g_unix_signal_add，但需要 GMainContext 已创建。
-  if (g_active_loop) {
-    g_main_loop_quit(g_active_loop);
-  }
+// 使用 g_unix_signal_add 安全地处理信号（在 GMainLoop 轮询中回调，async-signal-safe）。
+gboolean OnUnixSignal(gpointer user_data) {
+  auto *loop = static_cast<GMainLoop *>(user_data);
+  std::cerr << "[info] 收到终止信号，正在安全退出..." << std::endl;
+  if (loop)
+    g_main_loop_quit(loop);
+  return G_SOURCE_REMOVE;
 }
 
 // 性能统计定时输出回调。
@@ -55,7 +55,8 @@ gboolean OnPerfTick(gpointer user_data) {
   }
 
   std::cout << "[perf] fps=" << fps << " window_frames=" << frames
-            << " total_frames=" << total_frames << " p95_latency_ms=" << p95
+            << " total_frames=" << total_frames
+            << " p95_frame_interval_ms=" << p95
             << " elapsed_sec=" << elapsed_sec << std::endl;
 
   return G_SOURCE_CONTINUE;
@@ -125,11 +126,44 @@ bool RunOnce(const zed_ds::AppConfig &cfg) {
 
   auto perf = std::make_shared<zed_ds::PerfMonitor>(cfg.perf.window_sec);
 
+  // 追踪 + 轨迹 + 落点预测组件。
+  auto tracker = std::make_shared<zed_ds::BallTracker>(
+      zed_ds::BallTracker::Config{
+          .gate_distance_m = cfg.tracker.gate_distance_m,
+          .max_coast_frames = cfg.tracker.max_coast_frames,
+          .confirm_hits = cfg.tracker.confirm_hits,
+      });
+
+  auto trajectory = std::make_shared<zed_ds::TrajectoryEstimator>(
+      zed_ds::TrajectoryEstimator::Config{
+          .gravity = cfg.trajectory.gravity,
+          .process_noise_pos = cfg.trajectory.process_noise_pos,
+          .process_noise_vel = cfg.trajectory.process_noise_vel,
+          .measure_noise_xy = cfg.trajectory.measure_noise_xy,
+          .measure_noise_z = cfg.trajectory.measure_noise_z,
+          .dt_clamp_min = 0.0001f,
+          .dt_clamp_max = 0.1f,
+          .cov_trace_reset = cfg.trajectory.cov_trace_reset,
+          .innovation_gate_sigma = cfg.trajectory.innovation_gate_sigma,
+          .max_no_update_frames = cfg.trajectory.max_no_update_frames,
+      });
+
+  auto predictor = std::make_shared<zed_ds::LandingPredictor>(
+      zed_ds::LandingPredictor::Config{
+          .court_z = cfg.landing.court_z,
+          .gravity = cfg.trajectory.gravity,
+          .max_flight_time = cfg.landing.max_flight_time,
+          .min_confidence = cfg.landing.min_confidence,
+      });
+
   // 运行时上下文：通过 shared_ptr 在所有回调间安全共享。
   auto ctx = std::make_shared<zed_ds::RuntimeContext>();
   ctx->depth = depth;
   ctx->writer = writer;
   ctx->perf = perf;
+  ctx->tracker = tracker;
+  ctx->trajectory = trajectory;
+  ctx->predictor = predictor;
   ctx->enable_osd = cfg.output.enable_osd;
   // 直接持有 CameraConfig 指针，消除 CameraIntrinsics 重复。
   // 生命周期安全：cfg 在 RunOnce 返回前始终有效。
@@ -144,24 +178,27 @@ bool RunOnce(const zed_ds::AppConfig &cfg) {
 
   GMainLoop *loop = g_main_loop_new(nullptr, FALSE);
   GstBus *bus = gst_element_get_bus(handles.pipeline);
-  gst_bus_add_watch(bus, OnBusMsg, loop);
+  guint bus_watch_id = gst_bus_add_watch(bus, OnBusMsg, loop);
+
+  // 注册 Unix 信号处理（在 GMainContext 中安全回调）。
+  guint sig_int_id = g_unix_signal_add(SIGINT, OnUnixSignal, loop);
+  guint sig_term_id = g_unix_signal_add(SIGTERM, OnUnixSignal, loop);
 
   LoopState state;
   state.perf = perf;
   state.start_tp = std::chrono::steady_clock::now();
 
-  g_timeout_add_seconds(cfg.output.perf_log_interval_sec, OnPerfTick, &state);
+  guint perf_timer_id = g_timeout_add_seconds(
+      cfg.output.perf_log_interval_sec, OnPerfTick, &state);
 
   gst_element_set_state(handles.pipeline, GST_STATE_PLAYING);
-  g_active_loop = loop;
-  if (!g_stop) {
-    g_main_loop_run(loop);
-  }
-  g_active_loop = nullptr;
+  g_main_loop_run(loop);
 
-  if (g_stop) {
-    g_main_loop_quit(loop);
-  }
+  // 移除所有 GSource，避免悬空回调（尤其 LoopState 是栈变量）。
+  g_source_remove(perf_timer_id);
+  g_source_remove(bus_watch_id);
+  g_source_remove(sig_int_id);
+  g_source_remove(sig_term_id);
 
   gst_element_set_state(handles.pipeline, GST_STATE_NULL);
   gst_object_unref(bus);
@@ -178,8 +215,6 @@ bool RunOnce(const zed_ds::AppConfig &cfg) {
 
 int main(int argc, char **argv) {
   gst_init(&argc, &argv);
-  std::signal(SIGINT, OnSignal);
-  std::signal(SIGTERM, OnSignal);
   CheckZedDaemonHealth();
 
   zed_ds::CliOptions cli;

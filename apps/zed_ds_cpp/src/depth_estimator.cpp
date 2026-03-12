@@ -91,11 +91,15 @@ float DepthEstimator::ReadDepthMeters(const DepthFrame &frame, int x,
 
 DepthEstimate DepthEstimator::Estimate(const BBox &bbox, int frame_w,
                                        int frame_h) const {
-  std::lock_guard<std::mutex> lk(mu_);
+  DepthFrame local_frame;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (frame_.data.empty() || frame_.width <= 0 || frame_.height <= 0)
+      return {};
+    local_frame = frame_;  // 在锁内拷贝，锁外计算，避免阻塞 UpdateFromSample。
+  }
 
   DepthEstimate out;
-  if (frame_.data.empty() || frame_.width <= 0 || frame_.height <= 0)
-    return out;
 
   // 检测中心 ROI：取检测框中心一小块区域，排除边缘噪声。
   const float roi_w = std::max(8.0f, bbox.width * cfg_.roi_ratio);
@@ -104,10 +108,10 @@ DepthEstimate DepthEstimator::Estimate(const BBox &bbox, int frame_w,
   const float cy = bbox.top + bbox.height * 0.5f;
 
   // 深度帧分辨率可能与推理帧不同，需要缩放 ROI 坐标。
-  const float scale_x = (frame_w > 0) ? static_cast<float>(frame_.width) /
+  const float scale_x = (frame_w > 0) ? static_cast<float>(local_frame.width) /
                                             static_cast<float>(frame_w)
                                       : 1.0f;
-  const float scale_y = (frame_h > 0) ? static_cast<float>(frame_.height) /
+  const float scale_y = (frame_h > 0) ? static_cast<float>(local_frame.height) /
                                             static_cast<float>(frame_h)
                                       : 1.0f;
 
@@ -116,10 +120,10 @@ DepthEstimate DepthEstimator::Estimate(const BBox &bbox, int frame_w,
   int x1 = static_cast<int>(std::ceil((cx + roi_w * 0.5f) * scale_x));
   int y1 = static_cast<int>(std::ceil((cy + roi_h * 0.5f) * scale_y));
 
-  x0 = std::max(0, std::min(x0, frame_.width - 1));
-  y0 = std::max(0, std::min(y0, frame_.height - 1));
-  x1 = std::max(0, std::min(x1, frame_.width));
-  y1 = std::max(0, std::min(y1, frame_.height));
+  x0 = std::max(0, std::min(x0, local_frame.width - 1));
+  y0 = std::max(0, std::min(y0, local_frame.height - 1));
+  x1 = std::max(0, std::min(x1, local_frame.width));
+  y1 = std::max(0, std::min(y1, local_frame.height));
 
   int total = 0;
   int valid = 0;
@@ -127,7 +131,7 @@ DepthEstimate DepthEstimator::Estimate(const BBox &bbox, int frame_w,
   for (int y = y0; y < y1; ++y) {
     for (int x = x0; x < x1; ++x) {
       ++total;
-      const float d = ReadDepthMeters(frame_, x, y);
+      const float d = ReadDepthMeters(local_frame, x, y);
       if (!std::isfinite(d))
         continue;
       if (d < cfg_.min_depth || d > cfg_.max_depth)

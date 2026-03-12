@@ -19,8 +19,9 @@ camera:
 
 infer:
   config_file: configs/infer/config_infer_primary_dfine_ball.txt
-  onnx_file: model/best_stg1.onnx
-  engine_file: model/best_stg1_fp16.engine
+  # 下列字段当前仅作为模板信息保留，实际生效路径由 config_file 模板决定。
+  onnx_file: model/best_stg2.onnx
+  engine_file: model/best_stg2.onnx_b1_gpu0_fp16.engine
   labels: configs/labels_ball.txt
   threshold: 0.75
 
@@ -31,6 +32,7 @@ depth:
   max_depth: 20.00
 
 perf:
+  # 下列字段当前仅作为运行记录项保留，尚未直接驱动控制逻辑。
   target_fps: 60
   latency_budget_ms: 50
   window_sec: 5

@@ -116,20 +116,18 @@ static GstPadProbeReturn OnInferSrcPadBuffer(GstPad *pad, GstPadProbeInfo *info,
   auto &ctx = *data->ctx;
   const auto now = std::chrono::steady_clock::now();
 
-  // 计算端到端延迟：buffer PTS 到当前时间差。
+  // 使用 probe 回调间隔近似帧处理时间（并非严格端到端时延）。
+  // 该指标用于观察处理节奏抖动。
   double latency_ms = 0.0;
-  if (GST_BUFFER_PTS_IS_VALID(buf)) {
-    const uint64_t buf_pts_ns = GST_BUFFER_PTS(buf);
-    // 用 buffer 时间戳与系统时钟的差值估算延迟。
-    // 注意：PTS 是相机时钟域，steady_clock 是系统时钟域，两者可能有偏移。
-    // 这里采用帧间间隔推算，如果无法计算则记录 0。
-    (void)buf_pts_ns; // 后续可对接更精确的延迟测量方案。
+  // 用 atomic 替代 thread_local，因为 GStreamer 不保证 probe 回调总在同一线程。
+  const int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             now.time_since_epoch())
+                             .count();
+  const int64_t prev_ns = ctx.last_probe_time_ns.exchange(now_ns,
+                                                          std::memory_order_relaxed);
+  if (prev_ns > 0) {
+    latency_ms = static_cast<double>(now_ns - prev_ns) / 1e6;
   }
-  // 简化方案：用 probe 回调的调用间隔近似帧处理时间。
-  static thread_local auto last_probe_time = now;
-  latency_ms =
-      std::chrono::duration<double, std::milli>(now - last_probe_time).count();
-  last_probe_time = now;
 
   if (ctx.perf) {
     ctx.perf->MarkFrame(latency_ms);
@@ -147,11 +145,11 @@ static GstPadProbeReturn OnInferSrcPadBuffer(GstPad *pad, GstPadProbeInfo *info,
       const int64_t drift_ms = static_cast<int64_t>(depth_pts / 1000000) -
                                static_cast<int64_t>(infer_pts / 1000000);
       // 超过 100ms 偏差说明管线可能存在严重卡顿，每 200 帧采样一次避免刷屏。
-      static thread_local uint64_t drift_check_count = 0;
-      ++drift_check_count;
-      if (std::abs(drift_ms) > 100 && (drift_check_count % 200 == 1)) {
+      const uint64_t check_count = ctx.drift_check_count.fetch_add(
+          1, std::memory_order_relaxed);
+      if (std::abs(drift_ms) > 100 && (check_count % 200 == 0)) {
         std::cerr << "[warn] 深度帧-推理帧 PTS 偏差 " << drift_ms
-                  << "ms（预期 30-50ms），管线可能卡顿。" << std::endl;
+                  << "ms（经验常见约 30-50ms），管线可能卡顿。" << std::endl;
       }
     }
   }
@@ -166,11 +164,15 @@ static GstPadProbeReturn OnInferSrcPadBuffer(GstPad *pad, GstPadProbeInfo *info,
           now.time_since_epoch())
           .count());
 
+  NvDsFrameMeta *frame_meta_ptr = nullptr;
+
   for (NvDsMetaList *l_frame = batch_meta->frame_meta_list; l_frame;
        l_frame = l_frame->next) {
     auto *frame_meta = static_cast<NvDsFrameMeta *>(l_frame->data);
     if (!frame_meta)
       continue;
+
+    frame_meta_ptr = frame_meta;
 
     frame_out.frame_id = frame_meta->frame_num;
 
@@ -235,6 +237,180 @@ static GstPadProbeReturn OnInferSrcPadBuffer(GstPad *pad, GstPadProbeInfo *info,
 
       frame_out.detections.push_back(std::move(dr));
     }
+  }
+
+  // ── 追踪 + 轨迹估计 + 落点预测 ──
+  if (ctx.tracker) {
+    auto track = ctx.tracker->Update(frame_out.detections);
+
+    if (track && track->confirmed) {
+      // track 切换检测：新 track_id → 重置 EKF。
+      if (ctx.trajectory && track->track_id != ctx.last_tracker_id) {
+        ctx.trajectory->Initialize(track->x, track->y, track->z);
+        ctx.last_tracker_id = track->track_id;
+      }
+
+      // EKF 时间步：用 PTS 差值。
+      if (ctx.trajectory) {
+        float dt = 1.0f / 120.0f; // 默认帧间隔。
+        if (GST_BUFFER_PTS_IS_VALID(buf) && ctx.last_pts_ns > 0) {
+          const uint64_t pts = GST_BUFFER_PTS(buf);
+          if (pts > ctx.last_pts_ns) {
+            dt = static_cast<float>(pts - ctx.last_pts_ns) / 1e9f;
+          }
+        }
+
+        ctx.trajectory->Predict(dt);
+
+        // 如果有有效 3D 量测，更新 EKF。
+        if (track->coast_count == 0) {
+          ctx.trajectory->Update(track->x, track->y, track->z);
+        }
+
+        // 填充速度到 FrameResult。
+        frame_out.track.track_id = track->track_id;
+        frame_out.track.vx_m_s = ctx.trajectory->Vx();
+        frame_out.track.vy_m_s = ctx.trajectory->Vy();
+        frame_out.track.vz_m_s = ctx.trajectory->Vz();
+
+        // 落点预测。
+        if (ctx.predictor && ctx.trajectory->IsInitialized()) {
+          auto landing = ctx.predictor->Predict(ctx.trajectory->State(),
+                                                ctx.trajectory->Covariance());
+          frame_out.landing.x_land = landing.x_land;
+          frame_out.landing.y_land = landing.y_land;
+          frame_out.landing.time_to_land_s = landing.time_to_land_s;
+          frame_out.landing.confidence = landing.confidence;
+          frame_out.landing.sigma_x = landing.sigma_x;
+          frame_out.landing.sigma_y = landing.sigma_y;
+          frame_out.landing.valid = landing.valid;
+        }
+      }
+    }
+  }
+
+  // ── OSD 可视化：轨迹线 + 落点 + 信息文字 ──
+  if (ctx.enable_osd && frame_meta_ptr) {
+    // 1. 更新轨迹缓冲区。
+    if (frame_out.track.track_id >= 0 && !frame_out.detections.empty()) {
+      // 使用第一个检测的 bbox 中心作为轨迹点。
+      const auto &det = frame_out.detections[0];
+      const float u = det.det.bbox.left + det.det.bbox.width * 0.5f;
+      const float v = det.det.bbox.top + det.det.bbox.height * 0.5f;
+      ctx.trail_pixels.emplace_back(u, v);
+      while (static_cast<int>(ctx.trail_pixels.size()) >
+             RuntimeContext::kMaxTrailPoints) {
+        ctx.trail_pixels.pop_front();
+      }
+    } else if (frame_out.track.track_id < 0) {
+      ctx.trail_pixels.clear();
+    }
+
+    // 2. 绘制轨迹线（青色，最多 30 段，分批 display_meta）。
+    if (ctx.trail_pixels.size() >= 2) {
+      size_t seg_drawn = 0;
+      const size_t total_seg = ctx.trail_pixels.size() - 1;
+      while (seg_drawn < total_seg) {
+        NvDsDisplayMeta *dm =
+            nvds_acquire_display_meta_from_pool(batch_meta);
+        int li = 0;
+        for (size_t i = seg_drawn + 1;
+             i < ctx.trail_pixels.size() && li < 16; ++i, ++li) {
+          auto &p0 = ctx.trail_pixels[i - 1];
+          auto &p1 = ctx.trail_pixels[i];
+          auto &lp = dm->line_params[li];
+          lp.x1 = static_cast<unsigned int>(p0.first);
+          lp.y1 = static_cast<unsigned int>(p0.second);
+          lp.x2 = static_cast<unsigned int>(p1.first);
+          lp.y2 = static_cast<unsigned int>(p1.second);
+          lp.line_width = 2;
+          lp.line_color = {0.0f, 1.0f, 1.0f, 1.0f}; // 青色
+        }
+        dm->num_lines = li;
+        nvds_add_display_meta_to_frame(frame_meta_ptr, dm);
+        seg_drawn += li;
+      }
+    }
+
+    // 3. 落点标记 + 信息文字。
+    if (frame_out.landing.valid && ctx.camera && ctx.camera->fx > 1e-6f &&
+        ctx.predictor) {
+      const float z_fwd = frame_out.landing.y_land; // Z(前方深度)
+      if (z_fwd > 0.1f) {
+        const float u_land =
+            frame_out.landing.x_land * ctx.camera->fx / z_fwd +
+            ctx.camera->cx;
+        const float v_land =
+            ctx.predictor->CourtY() * ctx.camera->fy / z_fwd +
+            ctx.camera->cy;
+
+        NvDsDisplayMeta *dm =
+            nvds_acquire_display_meta_from_pool(batch_meta);
+
+        // 落点圆（红色）。
+        auto &cp = dm->circle_params[0];
+        cp.xc = static_cast<unsigned int>(u_land);
+        cp.yc = static_cast<unsigned int>(v_land);
+        cp.radius = 12;
+        cp.circle_color = {1.0f, 0.0f, 0.0f, 0.8f};
+        cp.has_bg_color = 0;
+        cp.bg_color = {0, 0, 0, 0};
+        dm->num_circles = 1;
+
+        // 落点文字：时间 + 置信度。
+        std::ostringstream oss;
+        oss.setf(std::ios::fixed);
+        oss.precision(2);
+        oss << "T=" << frame_out.landing.time_to_land_s << "s C="
+            << frame_out.landing.confidence;
+        auto &tp = dm->text_params[0];
+        tp.display_text = g_strdup(oss.str().c_str());
+        tp.x_offset = static_cast<unsigned int>(u_land + 15);
+        tp.y_offset = static_cast<unsigned int>(v_land - 10);
+        tp.font_params.font_name = const_cast<char *>("Serif");
+        tp.font_params.font_size = 12;
+        tp.font_params.font_color = {1.0f, 0.3f, 0.3f, 1.0f};
+        tp.set_bg_clr = 1;
+        tp.text_bg_clr = {0.0f, 0.0f, 0.0f, 0.6f};
+        dm->num_labels = 1;
+
+        nvds_add_display_meta_to_frame(frame_meta_ptr, dm);
+      }
+    }
+
+    // 4. 速度信息文字（左上角，绿色）。
+    if (frame_out.track.track_id >= 0 && ctx.trajectory &&
+        ctx.trajectory->IsInitialized()) {
+      NvDsDisplayMeta *dm =
+          nvds_acquire_display_meta_from_pool(batch_meta);
+      std::ostringstream oss;
+      oss.setf(std::ios::fixed);
+      oss.precision(2);
+      const float speed = std::sqrt(
+          frame_out.track.vx_m_s * frame_out.track.vx_m_s +
+          frame_out.track.vy_m_s * frame_out.track.vy_m_s +
+          frame_out.track.vz_m_s * frame_out.track.vz_m_s);
+      oss << "ID:" << frame_out.track.track_id << " V=" << speed
+          << "m/s (" << frame_out.track.vx_m_s << ","
+          << frame_out.track.vy_m_s << "," << frame_out.track.vz_m_s
+          << ")";
+      auto &tp = dm->text_params[0];
+      tp.display_text = g_strdup(oss.str().c_str());
+      tp.x_offset = 10;
+      tp.y_offset = 10;
+      tp.font_params.font_name = const_cast<char *>("Serif");
+      tp.font_params.font_size = 14;
+      tp.font_params.font_color = {0.0f, 1.0f, 0.0f, 1.0f};
+      tp.set_bg_clr = 1;
+      tp.text_bg_clr = {0.0f, 0.0f, 0.0f, 0.5f};
+      dm->num_labels = 1;
+      nvds_add_display_meta_to_frame(frame_meta_ptr, dm);
+    }
+  }
+
+  // 更新 PTS 记录。
+  if (GST_BUFFER_PTS_IS_VALID(buf)) {
+    ctx.last_pts_ns = GST_BUFFER_PTS(buf);
   }
 
   if (ctx.writer) {

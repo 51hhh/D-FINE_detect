@@ -18,8 +18,9 @@ camera:
 
 infer:
   config_file: configs/infer/config_infer_primary_dfine_ball.txt
-  onnx_file: model/best_stg1.onnx
-  engine_file: model/best_stg1_fp16.engine
+  # 下列字段当前仅作为模板信息保留，实际生效路径由 config_file 模板决定。
+  onnx_file: model/best_stg2.onnx
+  engine_file: model/best_stg2.onnx_b1_gpu0_fp16.engine
   labels: configs/labels_ball.txt
   # 只需要修改这一处阈值，程序会在运行时写入 nvinfer 配置。
   threshold: 0.75
@@ -31,6 +32,7 @@ depth:
   max_depth: 20.00
 
 perf:
+  # 下列字段当前仅作为运行记录项保留，尚未直接驱动控制逻辑。
   target_fps: 120
   latency_budget_ms: 35
   window_sec: 5
@@ -43,3 +45,26 @@ output:
   # flush 间隔，1 表示每秒刷盘一次。0 表示每帧刷盘（120fps 下慎用）。
   flush_interval_sec: 1
   display: true
+
+# ── 排球追踪 ──
+tracker:
+  gate_distance_m: 2.0      # 3D 关联门限（米）
+  max_coast_frames: 15       # 最大连续丢检帧数
+  confirm_hits: 3            # 确认 track 所需连续命中
+
+# ── EKF 轨迹估计 ──
+trajectory:
+  gravity: 9.81
+  process_noise_pos: 0.05    # 位置过程噪声 σ²
+  process_noise_vel: 2.0     # 速度过程噪声 σ²
+  measure_noise_xy: 0.05     # XY 量测噪声 σ²
+  measure_noise_z: 0.01      # Z(深度) 量测噪声 σ²
+  cov_trace_reset: 100.0     # 协方差 trace 超限触发重置
+  innovation_gate_sigma: 5.0 # 新息门限 (σ)
+  max_no_update_frames: 20   # 连续无量测帧数上限
+
+# ── 落点预测 ──
+landing:
+  court_z: 2.5               # 球场平面 Y 坐标（相机坐标系 Y=下，米，≈相机高度）
+  max_flight_time: 5.0       # 最大合理飞行时间（秒）
+  min_confidence: 0.1        # 最低置信度阈值

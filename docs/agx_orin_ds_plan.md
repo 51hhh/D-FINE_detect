@@ -22,7 +22,6 @@
 ## 4. 关键接口
 ### CLI
 - `--config <path>`
-- `--mode <max_fps|balanced|quality>`
 - `--dump-json <path>`
 - `--no-display`
 
@@ -48,10 +47,9 @@
 4. 若有效比例低于阈值，标记为 `invalid`
 
 ## 7. 性能策略
-- `max_fps`：优先冲高帧率
-- `balanced`：稳定优先
-- `quality`：精度优先
-- 运行时监控 FPS 与 P95 latency，低于阈值触发一次降档重启
+- 当前实现固定使用 `stream-type=4`（left+depth）与 `depth-mode=1`（性能优先）。
+- 运行时输出 `FPS` 与 `p95_frame_interval_ms`（nvinfer probe 回调间隔 P95，用于观察处理节奏）。
+- 当前版本未实现 `--mode` 模式切换与自动降档重启能力。
 
 ## 8. 输出与验收
 输出：
@@ -61,7 +59,7 @@
 验收重点：
 - 管线稳定运行
 - 目标框与深度结果正确
-- 性能模式可切换并能自动降档
+- CLI 行为与文档一致（`--config/--dump-json/--no-display`）
 
 ## 9. 运行注意事项
 `zedsrc` 在当前系统上需要：

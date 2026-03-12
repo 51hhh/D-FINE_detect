@@ -272,6 +272,9 @@ bool ParseCli(int argc, char **argv, CliOptions *out) {
     } else if (arg == "--help" || arg == "-h") {
       std::cout << "Usage: zed_ds_app [--config PATH] [--dump-json PATH] "
                    "[--no-display]\n";
+      std::cout << "  --config PATH     YAML config path\n";
+      std::cout << "  --dump-json PATH  Override JSONL output path\n";
+      std::cout << "  --no-display      Disable on-screen display sink\n";
       return false;
     }
   }
@@ -349,6 +352,32 @@ bool LoadYamlConfig(const std::string &path, AppConfig *cfg, std::string *err) {
                  &cfg->output.perf_log_interval_sec);
     SetIfPresent(o, "flush_interval_sec", &cfg->output.flush_interval_sec);
     SetIfPresent(o, "display", &cfg->output.display);
+  }
+
+  if (root["tracker"]) {
+    const auto t = root["tracker"];
+    SetIfPresent(t, "gate_distance_m", &cfg->tracker.gate_distance_m);
+    SetIfPresent(t, "max_coast_frames", &cfg->tracker.max_coast_frames);
+    SetIfPresent(t, "confirm_hits", &cfg->tracker.confirm_hits);
+  }
+
+  if (root["trajectory"]) {
+    const auto t = root["trajectory"];
+    SetIfPresent(t, "gravity", &cfg->trajectory.gravity);
+    SetIfPresent(t, "process_noise_pos", &cfg->trajectory.process_noise_pos);
+    SetIfPresent(t, "process_noise_vel", &cfg->trajectory.process_noise_vel);
+    SetIfPresent(t, "measure_noise_xy", &cfg->trajectory.measure_noise_xy);
+    SetIfPresent(t, "measure_noise_z", &cfg->trajectory.measure_noise_z);
+    SetIfPresent(t, "cov_trace_reset", &cfg->trajectory.cov_trace_reset);
+    SetIfPresent(t, "innovation_gate_sigma", &cfg->trajectory.innovation_gate_sigma);
+    SetIfPresent(t, "max_no_update_frames", &cfg->trajectory.max_no_update_frames);
+  }
+
+  if (root["landing"]) {
+    const auto l = root["landing"];
+    SetIfPresent(l, "court_z", &cfg->landing.court_z);
+    SetIfPresent(l, "max_flight_time", &cfg->landing.max_flight_time);
+    SetIfPresent(l, "min_confidence", &cfg->landing.min_confidence);
   }
 
   // 加载出厂标定内参。

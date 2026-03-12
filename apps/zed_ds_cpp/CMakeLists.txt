@@ -35,6 +35,9 @@ add_executable(zed_ds_app
   src/depth_estimator.cpp
   src/output_writer.cpp
   src/perf_monitor.cpp
+  src/ball_tracker.cpp
+  src/trajectory_estimator.cpp
+  src/landing_predictor.cpp
 )
 
 # ── D-FINE 自定义推理库 ──
@@ -55,6 +58,7 @@ target_link_directories(zed_ds_app PRIVATE ${DEEPSTREAM_LIB_DIR})
 target_link_libraries(zed_ds_app PRIVATE
   ${GST_LIBRARIES}
   nvdsgst_meta
+  nvds_meta
   yaml-cpp
 )
 

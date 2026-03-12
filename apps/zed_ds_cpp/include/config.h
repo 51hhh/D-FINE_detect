@@ -32,9 +32,11 @@ struct CameraConfig {
 
 // ── 推理配置 ──
 struct InferConfig {
+  // DeepStream nvinfer 模板配置文件路径（必填）。
   std::string config_file{"configs/infer/config_infer_primary_dfine_ball.txt"};
-  std::string onnx_file{"model/best_stg1.onnx"};
-  std::string engine_file{"model/best_stg1_fp16.engine"};
+  // 兼容字段：当前由 config_file 模板中的对应 key 决定，暂未在代码中直接消费。
+  std::string onnx_file{"model/best_stg2.onnx"};
+  std::string engine_file{"model/best_stg2.onnx_b1_gpu0_fp16.engine"};
   std::string labels{"configs/labels_ball.txt"};
   float threshold{0.75f};
 };
@@ -49,6 +51,7 @@ struct DepthConfig {
 
 // ── 性能配置 ──
 struct PerfConfig {
+  // 兼容字段：当前仅用于配置记录，未参与运行时控制。
   int target_fps{100};
   int latency_budget_ms{35};
   int window_sec{5};
@@ -65,6 +68,32 @@ struct OutputConfig {
   bool display{true};
 };
 
+// ── 追踪配置 ──
+struct TrackerConfig {
+  float gate_distance_m{2.0f};
+  int max_coast_frames{15};
+  int confirm_hits{3};
+};
+
+// ── 轨迹 EKF 配置 ──
+struct TrajectoryConfig {
+  float gravity{9.81f};
+  float process_noise_pos{0.05f};
+  float process_noise_vel{2.0f};
+  float measure_noise_xy{0.05f};
+  float measure_noise_z{0.01f};
+  float cov_trace_reset{100.0f};
+  float innovation_gate_sigma{5.0f};
+  int max_no_update_frames{20};
+};
+
+// ── 落点预测配置 ──
+struct LandingConfig {
+  float court_z{0.0f};
+  float max_flight_time{5.0f};
+  float min_confidence{0.1f};
+};
+
 // ── 总配置 ──
 struct AppConfig {
   CameraConfig camera;
@@ -72,6 +101,9 @@ struct AppConfig {
   DepthConfig depth;
   PerfConfig perf;
   OutputConfig output;
+  TrackerConfig tracker;
+  TrajectoryConfig trajectory;
+  LandingConfig landing;
 };
 
 // ── CLI 选项 ──

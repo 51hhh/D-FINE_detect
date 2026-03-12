@@ -27,8 +27,8 @@ zedsrc(stream-type=4) → zeddemux(is-depth=true)
 cd /home/nvidia/ObjectDetection
 
 /usr/src/tensorrt/bin/trtexec \
-  --onnx=model/best_stg1.onnx \
-  --saveEngine=model/best_stg1_fp16.engine \
+  --onnx=model/best_stg2.onnx \
+  --saveEngine=model/best_stg2.onnx_b1_gpu0_fp16.engine \
   --fp16 \
   --minShapes=images:1x3x640x640,orig_target_sizes:1x2 \
   --optShapes=images:1x3x640x640,orig_target_sizes:1x2 \
@@ -78,6 +78,11 @@ export GST_PLUGIN_PATH=/usr/lib/aarch64-linux-gnu/gstreamer-1.0
 ./apps/zed_ds_cpp/build/zed_ds_app --config configs/zed_dfine.yaml
 ```
 
+CLI 参数：
+- `--config <path>`：指定 YAML 配置文件
+- `--dump-json <path>`：覆盖输出 JSONL 路径
+- `--no-display`：关闭显示窗口，使用 `fakesink`
+
 无显示压测：
 
 ```bash
@@ -86,13 +91,14 @@ export GST_PLUGIN_PATH=/usr/lib/aarch64-linux-gnu/gstreamer-1.0
 
 ### 配置文件选择
 
-- `zed_dfine.yaml`：SVGA@120fps，低延迟高帧率
-- `zed_dfine_balanced.yaml`：HD1080@60fps，平衡画质与性能
-- `zed_dfine_fast.yaml`：SVGA@120fps，快速预设
+- `zed_dfine.yaml`：SVGA@120fps 默认配置
+- `zed_dfine_balanced.yaml`：HD1080@60fps 配置
+- `zed_dfine_fast.yaml`：SVGA@120fps 快速配置
 
 ### 关键设计
 
 - `nvinfer` 运行时配置自动生成到 `/tmp/zed_ds_runtime/`，不污染源码树。
 - 阈值由 YAML `infer.threshold` 单点控制。
-- 深度帧 PTS 对齐检查：偏差超过 33ms（约 2 帧@120fps）时打印告警。
+- 深度帧 PTS 对齐检查：偏差绝对值超过 `100ms` 时按采样频率打印告警。
+- 性能日志中的 `p95_frame_interval_ms` 为 nvinfer probe 回调间隔的 P95（用于观察处理节奏抖动，不是严格端到端时延）。
 - JSONL 输出按 `flush_interval_sec` 批量刷盘（默认 1 秒），避免 120fps 下每帧 fsync。
