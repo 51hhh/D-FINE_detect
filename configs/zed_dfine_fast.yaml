@@ -20,7 +20,7 @@ infer:
   config_file: configs/infer/config_infer_primary_dfine_ball.txt
   # 下列字段当前仅作为模板信息保留，实际生效路径由 config_file 模板决定。
   onnx_file: model/best_stg2.onnx
-  engine_file: model/best_stg2.onnx_b1_gpu0_fp16.engine
+  engine_file: model/best_stg2.engine
   labels: configs/labels_ball.txt
   threshold: 0.75
 

@@ -36,7 +36,7 @@ struct InferConfig {
   std::string config_file{"configs/infer/config_infer_primary_dfine_ball.txt"};
   // 兼容字段：当前由 config_file 模板中的对应 key 决定，暂未在代码中直接消费。
   std::string onnx_file{"model/best_stg2.onnx"};
-  std::string engine_file{"model/best_stg2.onnx_b1_gpu0_fp16.engine"};
+  std::string engine_file{"model/best_stg2.engine"};
   std::string labels{"configs/labels_ball.txt"};
   float threshold{0.75f};
 };

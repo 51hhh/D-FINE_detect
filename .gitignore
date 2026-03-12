@@ -16,3 +16,16 @@ logs/
 
 # 运行时生成的 nvinfer 配置（已移至 /tmp，但保留排除规则以防万一）。
 configs/infer/.runtime_*
+
+# Local agent/editor metadata and scratch planning files.
+.claude/
+.agents/
+.vscode/
+TODO.md
+todo.md
+todo.txt
+
+# Local model/training artifacts kept outside git.
+best_stg2.onnx
+best_stg2.engine
+当前训练总结.md

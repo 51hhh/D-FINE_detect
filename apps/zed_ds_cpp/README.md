@@ -28,12 +28,8 @@ cd /home/nvidia/ObjectDetection
 
 /usr/src/tensorrt/bin/trtexec \
   --onnx=model/best_stg2.onnx \
-  --saveEngine=model/best_stg2.onnx_b1_gpu0_fp16.engine \
-  --fp16 \
-  --minShapes=images:1x3x640x640,orig_target_sizes:1x2 \
-  --optShapes=images:1x3x640x640,orig_target_sizes:1x2 \
-  --maxShapes=images:1x3x640x640,orig_target_sizes:1x2 \
-  --workspace=4096
+  --saveEngine=model/best_stg2.engine \
+  --fp16
 
 
 ## ZED 出厂标定文件
